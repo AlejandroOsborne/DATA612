@@ -1,0 +1,279 @@
+---
+title: "DATA612 Project 1"
+author: "Alejandro D. Osborne"
+date: "June 11, 2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+```{r message=FALSE, warning=FALSE}
+library(pander)
+library(ggplot2)
+library(knitr)
+library(dplyr)
+```
+
+#This is a basic recommender system that has been created based off of a sample set where 20 users rated 10 choices of ramen noodles.
+
+
+
+###DataLoad & Analysis
+
+Load the sample data set with ratings for ramen and convert the same into a matrix format.
+
+
+
+```{r message=FALSE, warning=FALSE}
+# load csv into data variable 
+data <- read.csv("https://raw.githubusercontent.com/AlejandroOsborne/DATA612/master/RamenRatings.csv",row.name = 1)
+# convert data into a matrix
+data <- as.matrix(data)
+pander(data)
+```
+
+
+### Top 3 Noodles
+
+Here are the top 3 rated Noodles for fun
+
+
+```{r message=FALSE, warning=FALSE}
+means <- colMeans(data, na.rm = TRUE)
+cols <- colnames(data)[order(means, decreasing = TRUE)[1:3]]
+top3 <- data.frame(ramen = cols,stringsAsFactors = FALSE)
+pander(top3)
+```
+
+
+
+### Data Cleaving
+
+Here we will split the data in training and testing set.
+We selected 12 reviews from trainin and will replace those with NA in the training set. NA was used so it would be omitted from our calculations. In the test dataset we only kept values identified for testing. the others were replaced with NA.
+
+
+```{r}
+test_rows <- c(1,3,13,5,8,7,14,6,19,10,12,4)
+test_cols <- c(1,10,6,3,7,5,2,8,9,4,10,7)
+test_indices <- cbind(test_rows,test_cols)
+data_train <- data
+data_train[test_indices] <- NA
+data_test <- data
+data_test[test_indices] <- 0
+data_test[data_test > 0] <- NA
+data_test[test_indices] <- data[test_indices]
+```
+
+#### TRAINING DATA
+
+```{r}
+data_train
+```
+
+
+#### 3.2 TESTING DATA
+
+```{r}
+data_test
+```
+
+
+### 4.0 Calculations
+
+
+Find the mean, bias and RMSE for both the data sets
+
+
+#### 4.1 Mean ratings of each User with chart for Training data set
+
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+user_means <- rowMeans(data_train,na.rm = TRUE)
+user_means_df <-  data.frame(as.list(user_means))
+# change means from horizontal to vertical 
+user_means_df <- tidyr::gather(user_means_df,"user") 
+p1 <- ggplot(user_means_df,aes(x=user, y=value,fill=user))+ geom_bar(stat="identity") + labs(title="Plot of Mean User ratings",x="User",y="Avg. Rating")
+colnames(user_means_df) <-c("User","Rating")
+pander(user_means)
+p1
+```
+
+#### 4.2 Mean ratings of ramen with chart for Training data set
+
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+ramen_means <- colMeans(data_train,na.rm = TRUE)
+ramen_means_df <-  data.frame(as.list(ramen_means))
+# change user means from wide to long 
+ramen_means_df <- tidyr::gather(ramen_means_df,"ramen") 
+p2 <- ggplot(ramen_means_df,aes(x=ramen, y=value,fill=ramen))+ geom_bar(stat="identity") + labs(title="Plot of R Average Rating",x="ramen",y="Avg. Rating")
+colnames(ramen_means_df) <-c("ramen","Rating")
+pander(ramen_means)
+p2
+```
+
+
+#### 4.3 Raw Averages
+
+Rating for every user-item combination. For Testing and Training data sets
+
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+raw_test <- mean(data_test,na.rm = TRUE)
+raw_test_mat <- data_test
+raw_test_mat[] <- raw_test
+raw_test
+raw_train_mat <- data_train 
+raw_train <- mean(data_train,na.rm = TRUE)
+raw_train_mat[] <-raw_train
+raw_train
+```
+
+#### 4.4 RMSE for raw averages
+
+For Testing and Training data sets
+
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+#find squre difference 
+squareDiff <- (data_train - raw_train_mat)^2
+# find mean of squareDiff
+squareDiff_mean <- mean(squareDiff,na.rm = TRUE)
+#find square root
+rmse_train <- sqrt(squareDiff_mean)
+# train test 
+squareDiff_test <- (data_test - raw_test_mat)^2
+# find mean of squareDiff
+squareDiff_test_mean <- mean(squareDiff_test,na.rm = TRUE)
+#find square root
+rmse_test <- sqrt(squareDiff_test_mean)
+```
+
+#### 4.5 Train Data
+
+RMSE for Train
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+rmse_train
+```
+
+#### 4.6 Test Data
+
+RMSE for Test
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+rmse_test
+```
+
+
+####  4.7 Bias for each user and ramen
+
+User Bias
+
+```{r}
+## user bias
+user_bias <- user_means - raw_train
+user_bias_df <-  data.frame(as.list(user_bias))
+user_bias_df <- tidyr::gather(user_bias_df,"user")
+colnames(user_bias_df) <-c("User","Bias")
+pander(user_bias_df)
+```
+
+
+Ramen Bias
+
+```{r}
+#Ramen  bias
+ramen_bias <- ramen_means - raw_train
+ramen_bias_df <-  data.frame(as.list(ramen_bias))
+ramen_bias_df <- tidyr::gather(ramen_bias_df,"Ramen")
+colnames(ramen_bias_df) <-c("Ramen","Bias")
+pander(ramen_bias_df)
+```
+
+
+
+### 5.0 Baseline predictors for each user item
+
+
+```{r}
+# raw average + user bias + ramen bias
+calBaseLine <- function(in_matrix, ramen_bias_in,user_bias_in,raw_average)
+{
+  out_matrix <- in_matrix
+  row_count <-1
+  for(item in 1:nrow(in_matrix))
+  {
+    col_count <-1
+    for(colItem in 1: ncol(in_matrix))
+    {
+      #out_matrix[row_count,col_count] <- 0
+     out_matrix[row_count,col_count] <- raw_average[1] + user_bias_in[[row_count]] +  ramen_bias_in[[col_count]]
+      col_count <- col_count +1  
+    }
+    row_count <- row_count +1
+  }
+return(out_matrix)
+}
+base_pred <- calBaseLine(data_train,ramen_bias,user_bias,raw_train)
+pander(base_pred)
+```
+
+
+### 6.0 RMSE for the baseline predictors for both training data and testing data sets
+
+
+```{r}
+## test data
+# finding Error
+data_err <- data_test - base_pred
+# squaring error
+data_err <- (data_err)^2
+#finding average 
+data_rmse_test<- mean(data_err,na.rm = TRUE)
+# square root 
+data_rmse_test<- sqrt(data_rmse_test)
+## training data
+# finding Error
+data_err_train <- data_train - base_pred
+# squaring error
+data_err_train <- (data_err_train)^2
+#finding average 
+data_rmse_train <- mean(data_err_train,na.rm = TRUE)
+# square root 
+data_rmse_train<- sqrt(data_rmse_train)
+```
+
+#### 6.1 RMSE - TEST DATA
+
+```{r}
+data_rmse_test
+```
+
+#### 6.2 RMSE - TRAIN DATA
+
+```{r}
+data_rmse_train
+```
+
+### 7.0 Summary
+
+Lets calculate the percentage improvements based on the original (simple average) and baseline predictor (including bias) RMSE numbers for both Test and Train data sets.
+
+The results show that we see an 18% improvement in making a prediction for the ratings in the Training data set. Where as we see only 15% improvement in prediction for the Test data set. Both are positive hoewver the Training data set yielded better prediction.
+
+
+```{r}
+# Train data set
+R1 <- rmse_train
+Rb1 <- data_rmse_train
+Per_Improv_Train <- (1-(Rb1/R1))*100
+Per_Improv_Train
+# Test data set
+R2 <- rmse_test
+Rb2 <- data_rmse_test
+Per_Improv_Test <- (1-(Rb2/R2))*100
+Per_Improv_Test
+```
