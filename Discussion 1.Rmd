@@ -1,0 +1,35 @@
+---
+title: "Discussion 1"
+author: "Alejandro D. Osborne"
+date: "June 16, 2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Pandora
+
+The Pandora online radio is a Digital Streaming Platform thats provides recomendations-as-you-go to customers looking for a more advanced radio exerience based on approved preferences and likes from other customers.
+
+## Content Based Recommendations
+
+This stlye of recommendation relies heavily on meta-data drill downs that use attributes of an artist or song and to group them together in seemlingly massive overlays of Venn diagrams. Take for instance, the Hip Hop genre: if that is the general category, one may find a massive playlist that mashes together different subgenres that does not create a appealing playlist. Tyler the Creator and Jay-Z do not make the same kind of music although they are technically both rapping. Having subgenres allows a user to tag a song - Jay-Z may fall under the New York style of Hip Hop while Tyler would be considered an alternative artist. This content based approach allows a user to be as broad or narrow as possible when created a radio station.
+
+## Collaberative Filtering
+
+They also very-loosely apply a collaberative system through integrations with Facebook. This allows recommendations of the friends that you interact with the most and their likes and dislikes on the platform. This will be either very successful or extremely useless based on how similarly you and your friends enjoy a type of music.
+
+## Padora Systems
+
+Pandora has imposed a system known as the Music Genome Project. This is a multi dimensional vector of over 450 features such as genre, melody, beat, style, instrumental style  etc. that employs hundreds of specilists to classify every song. 
+
+If I play music by a particular band and the next song played has similar attributes/meta data but I don't like it, Pandora will update my preferences and not play anything by that band again that fits the criteria.
+
+This is the best way for casual music listeners to discover unknown bands because they are just as likely to match a user's criteria than any well known commerical entity because even if the style of music isn't unique, that particular bands approach and delivery might be.
+
+# Attacks on Recommender Systems
+
+While streaming farms are far more prevalant on Spotify and Apple Music, having a farm for Pandora could positively affect particular song on Pandora. A streaming farm is typically, 50-100 devices with the software or app installed that religiously will loop a song over and over again. With Pandora it would be a bit more involved of a process due to the sometimes random nature of the playlist, but it is conceivable that a song that is like over and over again by a fake account will be bumped more by the recommender system, boost the numbers of streams done and increase profits from the DSP. 
+
+The only real way to combat this is to sniff out fake accounts. This is where the integration with Facebook is key, as sniffing out fake profiles is far easier on social media than it is on a streaming platform. This is also true when there happens to be a data breach and real profiles are copied and used to farm for streams. This is an ever growing situation that has been met with limited response from the industry but is combatible only from the technology side as authentication checks and suspicious behavioral monitoring are the only real nets we can use at the moment.
+
