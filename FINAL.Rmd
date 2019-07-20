@@ -1,0 +1,623 @@
+---
+title: "Final Project"
+author: "Alejandro D. Osborne"
+date: "July 18, 2019"
+output:
+  html_document:
+    df_print: paged
+---
+#In This project I'm going to look build a system that can recommend beer to a user based on the ratings they've provided. Before we can get to that however, we need to evaluate the very large data set we will be working with.
+
+```{r}
+library(kableExtra)
+library(dplyr)
+library(tidyr)
+library(recommenderlab)
+library(knitr)
+library(sparklyr)
+library(plotly)
+library(DT)
+```
+
+
+```{r}
+beer = read.csv("https://raw.githubusercontent.com/AlejandroOsborne/DATA612/master/beer_reviews.csv", )
+```
+
+```{r}
+head(beer) %>% kable("html") %>% kable_styling()
+```
+
+## The dataset contains 3 attributes Beer Id, User & Overall Review Rating given by reviewer. In total 1000000 reviews are given.
+
+```{r}
+str(beer)
+```
+
+```{r}
+summary(beer)
+```
+
+###I want to find the empty entries
+```{r}
+nrow(beer[(is.na(beer$user) | beer$user==""), ])
+```
+
+###Removing empty
+```{r}
+beer<-beer[!(beer$user==""), ]
+```
+
+
+###Checking for duplicates where both item and user are duplicated or same user gave multiple ratings to same beer.
+```{r}
+beer[!(duplicated(beer[c("beerid","user")]) | duplicated(beer[c("beerid","user")], fromLast = TRUE)), ] %>% nrow()
+```
+
+```{r}
+beer %>% distinct(beerid,user,.keep_all = TRUE) %>% nrow()
+```
+
+### There are 990539 distict reviews
+
+### Removing duplicates having both beer & user duplicated, this will ensure that no 2 reviews from single user to same beer are counted & cumulate.
+
+```{r}
+beer<-distinct(beer,beerid,user,.keep_all = TRUE)
+```
+
+##Data Preparation
+
+###Choose only those beers that have at least N number of reviews
+
+```{r}
+beer_reviews_count <- beer %>% group_by(beerid) %>% summarise(total_beer_reviews=n())
+dim(beer_reviews_count)
+```
+
+### Total 39880 distinct beers.
+
+### Sorting beers by reviews
+
+```{r}
+beer_reviews_count[with(beer_reviews_count, order(total_beer_reviews,decreasing = TRUE)), ]
+```
+
+
+```{r}
+summary(beer_reviews_count)
+```
+
+### Beers have reviews count in range of 1 to 2929, beer 1904 has the highest number of reviews with 2,929.
+
+### Now we want to know the number of distinct users:
+
+```{r}
+beer %>% group_by(user) %>% summarise(total_user_reviews=n()) %>% nrow()
+```
+
+### 28244 distinct users
+
+### Now we want to know which users have reviewed maximum beers
+
+```{r}
+beer %>% group_by(user) %>% summarise(user_review_count=n()) %>% top_n(1)
+```
+
+###User: northyorksammy has reviewed the most beers
+
+
+### To find an ideal value of N its important that we choose beers having large enough number of reviews to avoid cold start problem.
+
+### So Lets further analyze beers by number of reviews each one have received. lets start with all beers with single review.
+
+```{r}
+qplot(beer_reviews_count$total_beer_reviews, geom = "histogram",xlab="Total Reviews")
+```
+
+```{r}
+beer_reviews_count %>% subset(total_beer_reviews==1) %>% dim()
+```
+
+### 14,275 beers have only 1 review, right now lets group by total reviews & find count for each.
+
+### Lets create separate dataframe with frequency of count of reviews
+
+```{r}
+review_frequency<-beer_reviews_count %>% group_by(total_beer_reviews) %>% summarise(review_occurance=n())
+
+head(review_frequency,25)
+```
+
+### It seems that most beers get very few reviews. In fact very few beers have large enough number of reviews required for building recommendation system based on collaborative filtering.
+
+### Filtering by beers having atleast 50 reviews & users having reviewed atleast 30 beers as there are more distinct beers.
+
+
+```{r}
+beer_reviews_count_subset<-subset(beer_reviews_count,beer_reviews_count$total_beer_reviews>=50)
+```
+
+### Now we are left with a dataset of these distinct beer ids each having more than 50 reviews each.
+
+### Now, lets check beer review frequency
+
+```{r}
+ggplot(beer_reviews_count_subset,aes(x=total_beer_reviews)) + geom_bar()
+```
+
+### Lets also filter beer dataset based on users who have atleast reviewed 30 beers each
+
+```{r}
+user_reviews_count<- beer %>% group_by(user) %>% summarise(total_user_reviews=n())
+user_reviews_count_subset<-subset(user_reviews_count,user_reviews_count$total_user_reviews>=30)
+ggplot(user_reviews_count_subset,aes(x=total_user_reviews)) + geom_bar()
+```
+
+### Now lets filter original data by these beer and user ids
+
+```{r}
+important_beers<-merge(beer,beer_reviews_count_subset,by.x="beerid",by.y="beerid")
+important_beers<-merge(important_beers,user_reviews_count_subset,by.x="user",by.y="user")
+
+summary(important_beers)
+```
+
+
+### Now we'll need to Convert this data frame to a "realratingMatrix" before we build out our collaborative filtering models
+```{r}
+beers_rrmatrix <- as(important_beers[,c(1,2,3)], "realRatingMatrix")
+class(beers_rrmatrix)
+```
+
+
+### Converting the matrix to a dataframe
+
+```{r}
+beers_df <- as(beers_rrmatrix, "data.frame")
+str(beers_df)
+```
+
+```{r}
+summary(beers_df)
+```
+
+### Data Exploration:
+### Determine how similar the first ten users are with each other and visualize it
+```{r}
+similar_users <- similarity(beers_rrmatrix[1:10,],method = "cosine",which = "users")
+kable(as.matrix(similar_users))
+```
+
+### Visualising similarity matrix
+
+```{r}
+image(as.matrix(similar_users), main = "User similarity")
+```
+
+### No we'll Compute and visualize the similarity between the first 10 beers
+
+### How similar are the first ten beers are with each other?
+
+```{r}
+similar_beers <- similarity(beers_rrmatrix[,1:10],method = "cosine",which = "items")
+kable(as.matrix(similar_beers))
+```
+
+### Beer similarity matrix
+
+```{r}
+image(as.matrix(similar_beers), main = "Beer similarity")
+```
+
+
+### What are the unique values of the ratings?
+
+```{r}
+beers_df %>% group_by(rating) %>% summarise(rating_frequency=n()) %>% nrow()
+```
+
+### We have 9 distinct ratings, lets check frequency of each rating.
+
+```{r}
+beers_df %>% group_by(rating) %>% summarise(rating_frequency=n())
+```
+
+### Rating 4.0 & 4.5 are most common, 1.0 & 1.5 are least common.
+
+
+### Let's visualize and and look at the average beer ratings 
+```{r}
+avg_beer_ratings<-beers_df %>% group_by(item) %>% summarise(average_rating=mean(rating))
+colors <- c(rep("red",2), rep("blue",2), rep("green",1))
+ggplot(avg_beer_ratings,aes(x=average_rating)) + geom_histogram() + labs(x="Average Rating", y="Number of Beers") + scale_x_discrete(limits=1:5)
+```
+
+```{r}
+summary(avg_beer_ratings$average_rating)
+```
+
+### So average beer ratings(Mean)=3.898 & Median=3.955, almost normal, very slightly left skewed.
+
+### Checking on original full dataset of beers
+```{r}
+avg_beer_ratings_all<-beer %>% group_by(beerid) %>% summarise(average_rating=mean(review))
+ggplot(avg_beer_ratings_all,aes(x=average_rating)) + geom_histogram() + labs(x="Average Rating", y="# of Beers")
+```
+
+```{r}
+summary(avg_beer_ratings_all$average_rating)
+```
+
+### So average beer ratings(Mean)=3.655 & Median=3.75, uneven distribution.
+
+### The Average user ratings
+
+```{r}
+avg_user_ratings<-beers_df %>% group_by(user) %>% summarise(average_rating=mean(rating))
+ggplot(avg_user_ratings,aes(x=average_rating)) + geom_histogram() + labs(x="Average Rating", y="Number of Users")
+```
+
+```{r}
+summary(avg_user_ratings$average_rating)
+```
+
+### The average number of ratings given to the beers
+
+```{r}
+avg_beer_reviews<-important_beers %>% group_by(beerid) %>% summarise(average_reviews=mean(total_beer_reviews))
+ggplot(avg_beer_reviews,aes(x=average_reviews)) + geom_histogram() + labs(x="Average Rating", y="Number of Beers")
+
+```
+
+```{r}
+summary(avg_beer_reviews$average_reviews)
+```
+
+### So on average each beer gets ~246 reviews from chosen subset.
+
+### Also checking on original full dataset of beers
+
+
+```{r}
+avg_user_ratings_all<-beer_reviews_count %>% group_by(beerid) %>% summarise(average_rating=mean(total_beer_reviews))
+ggplot(avg_user_ratings_all,aes(x=average_rating)) + geom_histogram() + labs(x="Average Rating", y="Number of Users")
+```
+
+```{r}
+summary(avg_user_ratings_all$average_rating)
+```
+
+### So on average each beer gets ~25 reviews.
+
+### The average number of ratings given by the users
+
+
+```{r}
+avg_user_reviews<-important_beers %>% group_by(user) %>% summarise(average_reviews=mean(total_user_reviews))
+ggplot(avg_user_reviews,aes(x=average_reviews)) + geom_histogram()
+```
+
+
+```{r}
+summary(avg_user_reviews$average_reviews)
+```
+
+### So on average each user gives ~180 reviews, but this distribution is very skewed.
+
+### For the full dataset of beers:
+
+```{r}
+avg_user_ratings_all<-user_reviews_count %>% group_by(user) %>% summarise(average_rating=mean(total_user_reviews))
+ggplot(avg_user_ratings_all,aes(x=average_rating)) + geom_histogram() + labs(x="Average Rating", y="Number of Users")
+
+```
+
+```{r}
+summary(avg_user_ratings_all$average_rating)
+```
+
+### So on average each user gives 35 reviews, but this distribution is very skewed.
+
+
+### We'll visualize the ratings with real rating matrix of beers
+
+```{r}
+qplot(getRatings(beers_rrmatrix), binwidth = 1, main = "Histogram of ratings", xlab = "Rating")
+```
+
+
+```{r}
+summary(getRatings(beers_rrmatrix)) #slightly right skewed
+qplot(getRatings(normalize(beers_rrmatrix, method = "Z-score")),main = "Histogram of normalized ratings", xlab = "Rating")
+```
+
+
+```{r}
+summary(getRatings(normalize(beers_rrmatrix, method = "Z-score"))) # seems better
+
+qplot(rowCounts(beers_rrmatrix), binwidth = 10,
+      main = "Beers Rated on average", xlab = "# of users", ylab = "# of beers rated")
+```
+
+
+### Most users rate less number of beers, very few users have rated more beers.
+
+
+##Recommendation Models:
+
+###Dividing our data into training and testing datasets, Experiment with 'split' and 'cross-validation' evaluation schemes
+
+
+
+##Scheme1 with train/test(90/10) using split without cross validation & goodRating as 4
+
+```{r}
+scheme1 <- evaluationScheme(beers_rrmatrix, method = "split", train = .75,k = 1, given = -1, goodRating = 4)
+scheme1
+```
+
+##Scheme2 using cross-validation without cross validation(5 folds) & goodRating as 4
+```{r}
+scheme2 <- evaluationScheme(beers_rrmatrix, method = "cross-validation",k = 5, given = -1, goodRating = 4)
+scheme2
+```
+
+
+##Building IBCF and UBCF models with below hyperparameters
+
+```{r}
+algorithms <- list(
+  "user-based CF" = list(name="UBCF", param=list(normalize = "Z-score",
+                                                 method="Cosine",
+                                                 nn=30)),
+  "item-based CF" = list(name="IBCF", param=list(normalize = "Z-score")))
+
+```
+
+
+##Evaluating algorithms & predicting next n beers
+```{r}
+results1 <- evaluate(scheme1, algorithms, n=c(1, 3, 5, 10, 15, 20))
+```
+
+
+```{r}
+class(results1)
+```
+
+```{r}
+results2 <- evaluate(scheme2, algorithms, n=c(1, 3, 5, 10, 15, 20))
+```
+
+```{r}
+class(results2)
+```
+
+
+Evaluating for scheme1 & scheme2 takes around 15 mins on my system
+
+
+##Compare the performance of the two models and suggest the one that should be deployed
+Drawing ROC curve
+
+```{r}
+plot(results1, annotate = 1:4, legend="topleft")
+plot(results2, annotate = 1:4, legend="topleft")
+```
+
+####As we have already proved, UBCF is better than IBCF especially with higher values of n.
+
+
+# Give the names of the top 5 beers that you would recommend to the any 3 users (randomly picked)
+
+```{r}
+r <- Recommender(beers_rrmatrix, method = "UBCF")
+r
+```
+
+
+For stcules
+```{r}
+recom_cokes <- predict(r, beers_rrmatrix['stcules'], n=5)
+as(recom_cokes, "list")
+```
+
+
+For johnmichaelsen
+```{r}
+recom_genog <- predict(r, beers_rrmatrix['johnmichaelsen'], n=5)
+as(recom_genog, "list")
+```
+
+
+For oline73
+```{r}
+recom_giblet <- predict(r, beers_rrmatrix['oline73'], n=5)
+as(recom_giblet, "list")
+```
+
+
+## Conclusion: Our recsys was able to successfully give recommendations for a selected set of users. While I am well aware that performing this analysis in a distributed system such as Spark or using a more advanced method would be more desireable I personally wanted to see what the more archaic way would produce if done correctly to it's full potential (I also had many issues with Sparklyr and ran out of time to troubleshoot).
+
+## While this recommendation system on a dataset this size takes a tremendous amount of time to process and run (by my count around 10-15 minutes), it works as intended and provided me another in depth look under the hood to better understand certain methodologies I may have glossed over or took for granted earlier in the course.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
